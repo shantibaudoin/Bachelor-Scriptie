@@ -1,0 +1,1095 @@
+#-------------------
+# LINEAIRE REGRESSIE
+
+## Scenario 1: aanname van normaliteit geschonden (Cauchy)
+
+library(BayesFactor)
+library(coda)
+library(Matrix)
+library(plyr)
+library(ggplot2)
+
+
+
+### simulatie parameters
+set.seed(123)
+sim_par <- expand.grid (repetition = 1:100,
+                        sample_size = c(10,100,1000),
+                        effect_size = c(0, 0.5, 1),
+                        distribution = c(0,1),
+                        stringsAsFactors = TRUE)
+nsim    <- nrow(sim_par)
+
+
+
+### simulatie data functie
+simulate_data <- function(n, effect_size, distribution) {
+  n         <- sample_size
+  predictor <- rnorm(n)
+  Beta.0    <- 0
+  Beta.1    <- effect_size
+  if (distribution == 0){
+    e <- rnorm(n)
+    outcome <- Beta.0 + Beta.1 * predictor + e
+  } else {
+    e <- rcauchy(n)
+    outcome <- Beta.0 + Beta.1 * predictor + e
+  }
+  return(data.frame(outcome = outcome, predictor = predictor))
+}
+
+### fit frequentist
+fitFreq      <- function(dat){
+  f <- lm(outcome ~ predictor, data=dat)
+  if (summary(f)$coefficients[2, "Pr(>|t|)"] < 0.025) {
+    return("Ha")
+  } else {
+    return("H0")
+  }
+}
+
+
+### fit bayes
+fitBayes     <- function(dat){
+  bf <- lmBF(outcome ~ predictor, data=dat)
+  BF <- extractBF(bf)$bf
+  if (BF > 1) {
+    return("Ha")
+  } else if (BF < 1) {
+    return("H0")
+  } else {
+    return("NoEv")
+  } 
+}
+
+### simulation 
+for (i in 1:1800){
+  sample_size  <- sim_par$sample_size[i]
+  effect_size  <- sim_par$effect_size[i]
+  distribution <- sim_par$distribution[i]
+  dat <- simulate_data(n = sample_size, effect_size = effect_size, distribution = distribution)
+  sim_par$Freq.hyp[i] <- fitFreq(dat)
+  sim_par$Bayes.hyp[i]  <- fitBayes(dat)
+ 
+}
+
+sim_par
+
+
+### manipulatiecontrole normaliteit
+
+
+# Aanname normaliteit voldaan
+set.seed(123)
+n         <- sample_size
+predictor <- rnorm(n)
+Beta.0    <- 0 
+Beta.1    <- effect_size
+e <- rnorm(n)
+outcome <- Beta.0 + Beta.1 * predictor + e
+normal <- lm(outcome ~ predictor, data=sim_par)
+plot(normal, 2)
+
+# Aanname normaliteit geschonden (Cauchy)
+set.seed(123)
+n         <- sample_size
+predictor <- rnorm(n)
+Beta.0    <- 0 
+Beta.1    <- effect_size
+e <- rcauchy(n)
+outcome <- Beta.0 + Beta.1 * predictor + e
+cauchy <- lm(outcome ~ predictor, data=sim_par)
+plot(cauchy, 2)
+
+
+
+### results
+ 
+freq  <- table(sim_par$Freq.hyp, sim_par$distribution, sim_par$sample_size, sim_par$effect_size)/100
+bayes <- table(sim_par$Bayes.hyp, sim_par$distribution, sim_par$sample_size, sim_par$effect_size)/100
+
+
+results <- data.frame(
+  "Frequentist" = freq,
+  "Bayes" = bayes
+)
+
+names(results)[names(results) == "Frequentist.Var1"] <- "hypothesis"
+names(results)[names(results) == "Frequentist.Var2"] <- "distribution"
+names(results)[names(results) == "Frequentist.Var3"] <- "sample_size"
+names(results)[names(results) == "Frequentist.Var4"] <- "effect_size"
+names(results)[names(results) == "Frequentist.Freq"] <- "proportion"
+
+names(results)[names(results) == "Bayes.Var1"] <- "hypothesis"
+names(results)[names(results) == "Bayes.Var2"] <- "distribution"
+names(results)[names(results) == "Bayes.Var3"] <- "sample_size"
+names(results)[names(results) == "Bayes.Var4"] <- "effect_size"
+names(results)[names(results) == "Bayes.Freq"] <- "proportion"
+
+results
+
+
+### ggplot type 1 error
+
+step1 <- results[1:12,]
+step2 <- step1[results$hypothesis != "H0",]
+step3 <- step2[1:6,]
+step4 <- step3[,1:5] 
+step5 <- step3[,6:10]
+step6 <- rbind(step5, step4)
+
+sD <-sqrt(step6$proportion*(1-step5$proportion))
+sE <-sD/sqrt(100)
+
+approach <- c("Frequentist","Frequentist","Frequentist","Frequentist","Frequentist","Frequentist","Bayesiaan","Bayesiaan","Bayesiaan","Bayesiaan","Bayesiaan","Bayesiaan")
+ass <- c("Aanname geschonden", "Aanname voldaan")
+Aannames <- rep(ass, 6)
+step6 <- rbind(step4, step5)
+type1er <-cbind(step6, approach, Aannames)
+
+
+g1 <- ggplot(data = type1er, aes(x = sample_size, y = proportion, group = Aannames)) +geom_line() +
+  facet_grid(approach~Aannames) + ggtitle(label = "Scenario 1: aanname van normaliteit geschonden", subtitle = "Type I fout ratio") + labs(x = ("Sample grootte (n)"), y = ("Type I fout ratio" ), colour = "Distributie") + geom_errorbar(aes(ymin=proportion-sE, ymax=proportion+sE), size = 0.5, width=.05)
+
+g1 + theme_linedraw() + theme(plot.title = element_text(color = "black", size = 12, face = "bold")) + geom_hline(yintercept=0.05, linetype="dashed", col="grey67") 
+
+
+### ggplot type 2 error
+
+
+freq  <- table(sim_par$Freq.hyp, sim_par$distribution, sim_par$sample_size, sim_par$effect_size)/100
+bayes <- table(sim_par$Bayes.hyp, sim_par$distribution, sim_par$sample_size, sim_par$effect_size)/100
+
+
+results <- data.frame(
+  "Frequentist" = freq,
+  "Bayes" = bayes
+)
+
+names(results)[names(results) == "Frequentist.Var1"] <- "hypothesis"
+names(results)[names(results) == "Frequentist.Var2"] <- "distribution"
+names(results)[names(results) == "Frequentist.Var3"] <- "sample_size"
+names(results)[names(results) == "Frequentist.Var4"] <- "effect_size"
+names(results)[names(results) == "Frequentist.Freq"] <- "proportion"
+
+names(results)[names(results) == "Bayes.Var1"] <- "hypothesis"
+names(results)[names(results) == "Bayes.Var2"] <- "distribution"
+names(results)[names(results) == "Bayes.Var3"] <- "sample_size"
+names(results)[names(results) == "Bayes.Var4"] <- "effect_size"
+names(results)[names(results) == "Bayes.Freq"] <- "proportion"
+
+
+step1 <- results[25:36,]
+step2 <- step1[results$hypothesis != "Ha",]
+step3 <- step2[1:6,]
+step4 <- step3[,1:5] 
+step5 <- step3[,6:10]
+
+
+approach <- c("Frequentist","Frequentist","Frequentist","Frequentist","Frequentist","Frequentist","Bayesiaan","Bayesiaan","Bayesiaan","Bayesiaan","Bayesiaan","Bayesiaan")
+ass <- c("Aanname voldaan (Normaal)", "Aanname geschonden (Cauchy)")
+Aannames <- rep(ass, 6)
+step6 <- rbind(step4, step5)
+
+sD <-sqrt(step6$proportion*(1-step5$proportion))
+sE <-sD/sqrt(100)
+
+type2er <-cbind(step6, approach, Aannames)
+
+
+g2 <- ggplot(data = type2er, aes(x = sample_size, y = proportion, group = Aannames)) + geom_line() +
+  facet_grid(approach~Aannames) + ggtitle(label = "Scenario 1: aanname van normaliteit geschonden", subtitle = "Type II fout ratio") + labs(x = ("Sample grootte (n)"), y = ("Type II fout ratio" ), colour = "Distributie") + geom_errorbar(aes(ymin=proportion-sE, ymax=proportion+sE), size = 0.5, width=.05)
+
+g2 + theme_linedraw() + theme(plot.title = element_text(color = "black", size = 12, face = "bold"))
+
+
+
+#-------------------
+# LINEAIRE REGRESSIE
+
+## Scenario 2: lineariteit geschonden
+
+library(BayesFactor)
+library(coda)
+library(Matrix)
+library(plyr)
+library(ggplot2)
+
+### simulation parameters
+set.seed(124)
+sim_par <- expand.grid (repetition = 1:100,
+                        sample_size = c(10,100,1000),
+                        effect_size = c(0, 0.5, 1),
+                        linearity = c(0,1),
+                        stringsAsFactors = TRUE)
+nsim  <- nrow(sim_par)
+
+# linearity == 0 <- aanname voldaan
+# linearity == 1 <- aanname geschonden
+
+
+### simulate data function
+
+simulate_data <- function(n, effect_size, linearity) {
+  n         <- sample_size
+  Beta.0    <- 1 
+  Beta.1    <- effect_size
+  e <- rnorm(n)
+  
+  if (linearity == 0){
+    predictor <- rnorm(n)
+    outcome <- Beta.0 + Beta.1 * predictor + e
+  } else {
+    predictor <- predictor^2
+    outcome <- Beta.0 + Beta.1 * predictor  + e
+  }
+   return (data.frame(outcome = outcome, predictor = predictor)) 
+}
+
+### fit frequentist
+
+fitFreq      <- function(dat){
+  f <- lm(outcome ~ predictor, data=dat)
+  if (summary(f)$coefficients[2, "Pr(>|t|)"] < 0.025) {
+    return("Ha")
+  } else {
+    return("H0")
+  }
+}
+
+### fit bayes
+
+fitBayes     <- function(dat){
+  bf <- lmBF(outcome ~ predictor, data=dat)
+  BF <- extractBF(bf)$bf
+  if (BF > 1) {
+    return("Ha")
+  } else if (BF < 1) {
+    return("H0")
+  } else {
+    return("NoEv")
+  } 
+}
+
+
+### simulation 
+
+for (i in 1:1800){
+  sample_size  <- sim_par$sample_size[1]
+  effect_size  <- sim_par$effect_size[1]
+  linearity    <- sim_par$linearity[1]
+  dat <- simulate_data(n = sample_size, effect_size = effect_size, linearity = linearity)
+  sim_par$Freq.hyp[i]   <- fitFreq(dat)
+  sim_par$Bayes.hyp[i]  <- fitBayes(dat)
+}
+
+sim_par
+
+
+### manipulatiecontrole normaal
+set.seed(124)
+n <- 100
+Beta.0    <- 0 
+Beta.1    <- 1
+e <- rnorm(n)
+predictor <- rnorm(n)
+outcome <- Beta.0 + Beta.1 * predictor  + e
+plot(predictor, outcome)
+model.n <- lm(outcome~predictor)
+abline(model.n, col="red")
+
+### manipulatiecontrole polynoom
+set.seed(123)
+n <- 100
+Beta.0    <- 0 
+Beta.1    <- 1
+Beta.2    <- 1
+e <- rnorm(n)
+predictor <- rnorm(n)
+predictor.2 <- predictor^2
+outcome <- Beta.0 + Beta.1 * predictor+ Beta.2 * predictor.2 + e
+fit.lin <- lm(outcome~predictor+predictor.2)
+plot(predictor, outcome)
+lines(lowess(predictor, outcome), col="red")
+
+
+
+### ggplot type 1 error
+
+freq  <- table(sim_par$Freq.hyp, sim_par$linearity, sim_par$sample_size, sim_par$effect_size)/100
+bayes <- table(sim_par$Bayes.hyp, sim_par$linearity, sim_par$sample_size, sim_par$effect_size)/100
+
+results <- data.frame(
+  "Frequentist" = freq,
+  "Bayes" = bayes
+)
+
+names(results)[names(results) == "Frequentist.Var1"] <- "hypothesis"
+names(results)[names(results) == "Frequentist.Var2"] <- "lineariteit"
+names(results)[names(results) == "Frequentist.Var3"] <- "sample_size"
+names(results)[names(results) == "Frequentist.Var4"] <- "effect_size"
+names(results)[names(results) == "Frequentist.Freq"] <- "proportion"
+
+names(results)[names(results) == "Bayes.Var1"] <- "hypothesis"
+names(results)[names(results) == "Bayes.Var2"] <- "lineariteit"
+names(results)[names(results) == "Bayes.Var3"] <- "sample_size"
+names(results)[names(results) == "Bayes.Var4"] <- "effect_size"
+names(results)[names(results) == "Bayes.Freq"] <- "proportion"
+
+step1 <- results[1:12,]
+step2 <- step1[results$hypothesis != "H0",]
+step3 <- step2[1:6,]
+step4 <- step3[,1:5] 
+step5 <- step3[,6:10]
+
+approach <- c("Frequentist","Frequentist","Frequentist","Frequentist","Frequentist","Frequentist","Bayesiaan","Bayesiaan","Bayesiaan","Bayesiaan","Bayesiaan","Bayesiaan")
+ass <- c("Aanname voldaan", "Aanname geschonden")
+Aannames <- rep(ass, 6)
+step6 <- rbind(step4, step5)
+
+sD <-sqrt(step6$proportion*(1-step5$proportion))
+sE <-sD/sqrt(100)
+
+type1er <-cbind(step6, approach, Aannames)
+
+g1 <- ggplot(data = type1er, aes(x = sample_size, y = proportion, group = Aannames)) +geom_line() +
+  facet_grid(approach~Aannames) + ggtitle(label = "Scenario 2: aanname van lineariteit geschonden", subtitle = "Type I fout ratio") + labs(x = ("Sample grootte (n)"), y = ("Type I fout ratio" ), colour = "Lineariteit") + geom_errorbar(aes(ymin=proportion-sE, ymax=proportion+sE), size = 0.5, width=.05)
+
+g1 + theme_linedraw() + theme(plot.title = element_text(color = "black", size = 12, face = "bold")) + geom_hline(yintercept=0.05, linetype="dashed", col="grey67") 
+
+
+
+### ggplot type 2 error
+freq  <- table(sim_par$Freq.hyp, sim_par$linearity, sim_par$sample_size, sim_par$effect_size)/100
+bayes <- table(sim_par$Bayes.hyp, sim_par$linearity, sim_par$sample_size, sim_par$effect_size)/100
+
+
+results <- data.frame(
+  "Frequentist" = freq,
+  "Bayes" = bayes
+)
+
+names(results)[names(results) == "Frequentist.Var1"] <- "hypothesis"
+names(results)[names(results) == "Frequentist.Var2"] <- "lineariteit"
+names(results)[names(results) == "Frequentist.Var3"] <- "sample_size"
+names(results)[names(results) == "Frequentist.Var4"] <- "effect_size"
+names(results)[names(results) == "Frequentist.Freq"] <- "proportion"
+
+names(results)[names(results) == "Bayes.Var1"] <- "hypothesis"
+names(results)[names(results) == "Bayes.Var2"] <- "lineariteit"
+names(results)[names(results) == "Bayes.Var3"] <- "sample_size"
+names(results)[names(results) == "Bayes.Var4"] <- "effect_size"
+names(results)[names(results) == "Bayes.Freq"] <- "proportion"
+
+
+step1 <- results[25:36,]
+step2 <- step1[results$hypothesis != "Ha",]
+step3 <- step2[1:6,]
+step4 <- step3[,1:5] 
+step5 <- step3[,6:10]
+
+approach <- c("Frequentist","Frequentist","Frequentist","Frequentist","Frequentist","Frequentist","Bayesiaan","Bayesiaan","Bayesiaan","Bayesiaan","Bayesiaan","Bayesiaan")
+ass <- c("Aanname voldaan", "Aanname geschonden")
+Aannames <- rep(ass, 6)
+step6 <- rbind(step4, step5)
+
+sD <-sqrt(step6$proportion*(1-step5$proportion))
+sE <-sD/sqrt(100)
+
+type2er <-cbind(step6, approach, Aannames)
+
+
+g2 <- ggplot(data = type2er, aes(x = sample_size, y = proportion, group = Aannames)) + geom_line() +
+  facet_grid(approach~Aannames) + ggtitle(label = "Scenario 2: aanname van lineariteit geschonden", subtitle = "Type II fout ratio") + labs(x = ("Sample grootte (n)"), y = ("Type II fout ratio" ), colour = "lineariteit") + geom_errorbar(aes(ymin=proportion-sE, ymax=proportion+sE), size = 0.5, width=.05)
+
+g2 + theme_linedraw() + theme(plot.title = element_text(color = "black", size = 12, face = "bold")) 
+
+
+
+#-------------------
+# LINEAIRE REGRESSIE
+
+## Scenario 3: aanname van homoskedacticiteit geschonden
+
+rm(list=ls())
+
+library(BayesFactor)
+library(coda)
+library(Matrix)
+library(plyr)
+library(ggplot2)
+library(MASS)
+library(lmtest) # breush pagan heterosked check
+library(zoo)
+
+
+### simulation parameters
+set.seed(125)
+sim_par <- expand.grid (repetition = 1:100,
+                        sample_size = c(10,100,1000),
+                        effect_size = c(0, 0.5, 1),
+                        homoskedasticity = c(0,1),
+                        stringsAsFactors = TRUE)
+nsim  <- nrow(sim_par)
+
+# homoskedasticiteit == 0 <- aanname voldaan
+# homoskedasticiteit == 1 <- aanname geschonden
+
+
+### simulate data function
+
+simulate_data <- function(n, effect_size, homoskedasticity) {
+  n         <- sample_size
+  Beta.0    <- 0 
+  Beta.1    <- effect_size
+  predictor <- rnorm(n)
+  
+  if (homoskedasticity == 0){
+    e       <- rnorm(n)
+    outcome <- Beta.0 + Beta.1 * predictor + e
+  } else {
+    e       <- rnorm(n, sd = 0.1 * exp(predictor))
+    outcome <- Beta.0 + Beta.1 * predictor + e
+  }
+  return(data.frame(outcome = outcome, predictor = predictor))
+}
+
+
+### fit frequentist
+
+fitFreq      <- function(dat){
+  f <- lm(outcome ~ predictor, data=dat)
+  if (summary(f)$coefficients[2, "Pr(>|t|)"] < 0.025) {
+    return("Ha")
+  } else {
+    return("H0")
+  }
+}
+
+
+### fit bayes
+
+fitBayes     <- function(dat){
+  bf <- lmBF(outcome ~ predictor, data=dat)
+  BF <- extractBF(bf)$bf
+  if (BF > 1) {
+    return("Ha")
+  } else if (BF < 1) {
+    return("H0")
+  } else {
+    return("NoEv")
+  } 
+}
+
+
+### simulation 
+
+for (i in 1:1800){
+  sample_size           <- sim_par$sample_size[i]
+  effect_size           <- sim_par$effect_size[i]
+  homoskedasticity      <- sim_par$homoskedasticity[i]
+  dat <- simulate_data(n = sample_size, effect_size = effect_size, homoskedasticity = homoskedasticity)
+  sim_par$Freq.hyp[i]   <- fitFreq(dat)
+  sim_par$Bayes.hyp[i]  <- fitBayes(dat)
+}
+
+sim_par
+
+
+### manipulatiecontrole homoskedasticiteit
+
+# normaal = homoskedasticiteit
+set.seed(125)
+n         <- 100
+Beta.0    <- 0 
+Beta.1    <- effect_size
+sigma     <- 1
+predictor <- rnorm(n)
+e       <- rnorm(n)
+outcome <- Beta.0 + Beta.1 * predictor + e
+lmMod <- lm(outcome~predictor)
+plot(lmMod)
+lmtest::bptest(lmMod)
+
+
+
+# geschonden = heteroskedasticiteit
+set.seed(125)
+n         <- 100
+Beta.0    <- 0 
+Beta.1    <- effect_size
+predictor <- rnorm(n)
+e       <- rnorm(n, sd = 0.1 * exp(predictor))
+outcome <- Beta.0 + Beta.1 * predictor + e
+lmMod <- lm(outcome~predictor)
+plot(lmMod)
+lmtest::bptest(lmMod)
+
+lmMod.cars <- lm(dist~speed, data=cars)
+par(mfrow=c(2,2))
+plot(lmMod.cars)
+lmtest::bptest(lmMod.cars)
+
+citation(packag="lmtest")
+
+
+# statistical test
+library(lmtest)
+library(zoo)
+lmtest::bptest(lmMod)
+
+library
+
+### ggplot type 1 error
+
+freq  <- table(sim_par$Freq.hyp, sim_par$homoskedasticity, sim_par$sample_size, sim_par$effect_size)/100
+bayes <- table(sim_par$Bayes.hyp, sim_par$homoskedasticity, sim_par$sample_size, sim_par$effect_size)/100
+
+
+results <- data.frame(
+  "Frequentist" = freq,
+  "Bayes" = bayes
+)
+
+names(results)[names(results) == "Frequentist.Var1"] <- "hypothesis"
+names(results)[names(results) == "Frequentist.Var2"] <- "homoskedasticiteit"
+names(results)[names(results) == "Frequentist.Var3"] <- "sample_size"
+names(results)[names(results) == "Frequentist.Var4"] <- "effect_size"
+names(results)[names(results) == "Frequentist.Freq"] <- "proportion"
+
+names(results)[names(results) == "Bayes.Var1"] <- "hypothesis"
+names(results)[names(results) == "Bayes.Var2"] <- "homoskedasticiteit"
+names(results)[names(results) == "Bayes.Var3"] <- "sample_size"
+names(results)[names(results) == "Bayes.Var4"] <- "effect_size"
+names(results)[names(results) == "Bayes.Freq"] <- "proportion"
+
+step1 <- results[1:12,]
+step2 <- step1[results$hypothesis != "H0",]
+step3 <- step2[1:6,]
+step4 <- step3[,1:5] 
+step5 <- step3[,6:10]
+
+approach <- c("Frequentist","Frequentist","Frequentist","Frequentist","Frequentist","Frequentist","Bayesiaan","Bayesiaan","Bayesiaan","Bayesiaan","Bayesiaan","Bayesiaan")
+ass <- c("Aanname voldaan", "Aanname geschonden")
+Aannames <- rep(ass, 6)
+step6 <- rbind(step4, step5)
+
+sD <-sqrt(step6$proportion*(1-step5$proportion))
+sE <-sD/sqrt(100)
+
+type1er <-cbind(step6, approach, Aannames)
+
+g1 <- ggplot(data = type1er, aes(x = sample_size, y = proportion, group = Aannames)) +geom_line() +
+  facet_grid(approach~Aannames) + ggtitle(label = "Scenario 3: aanname van homoskedasticiteit geschonden", subtitle = "Type I fout ratio") + labs(x = ("Sample grootte (n)"), y = ("Type I fout ratio" ), colour = "homoskedasticiteit") + geom_errorbar(aes(ymin=proportion-sE, ymax=proportion+sE), size = 0.5, width=.05)
+
+g1 + theme_linedraw() + theme(plot.title = element_text(color = "black", size = 12, face = "bold")) + geom_hline(yintercept=0.05, linetype="dashed", col="grey") 
+
+
+### ggplot type 2 error
+
+freq  <- table(sim_par$Freq.hyp, sim_par$homoskedasticity, sim_par$sample_size, sim_par$effect_size)/100
+bayes <- table(sim_par$Bayes.hyp, sim_par$homoskedasticity, sim_par$sample_size, sim_par$effect_size)/100
+
+
+results <- data.frame(
+  "Frequentist" = freq,
+  "Bayes" = bayes
+)
+
+names(results)[names(results) == "Frequentist.Var1"] <- "hypothesis"
+names(results)[names(results) == "Frequentist.Var2"] <- "homoskedasticiteit"
+names(results)[names(results) == "Frequentist.Var3"] <- "sample_size"
+names(results)[names(results) == "Frequentist.Var4"] <- "effect_size"
+names(results)[names(results) == "Frequentist.Freq"] <- "proportion"
+
+names(results)[names(results) == "Bayes.Var1"] <- "hypothesis"
+names(results)[names(results) == "Bayes.Var2"] <- "homoskedasticiteit"
+names(results)[names(results) == "Bayes.Var3"] <- "sample_size"
+names(results)[names(results) == "Bayes.Var4"] <- "effect_size"
+names(results)[names(results) == "Bayes.Freq"] <- "proportion"
+
+
+step1 <- results[25:36,]
+step2 <- step1[results$hypothesis != "Ha",]
+step3 <- step2[1:6,]
+step4 <- step3[,1:5] 
+step5 <- step3[,6:10]
+
+approach <- c("Frequentist","Frequentist","Frequentist","Frequentist","Frequentist","Frequentist","Bayesiaan","Bayesiaan","Bayesiaan","Bayesiaan","Bayesiaan","Bayesiaan")
+ass <- c("Aanname voldaan", "Aanname geschonden")
+Aannames <- rep(ass, 6)
+step6 <- rbind(step4, step5)
+
+sD <-sqrt(step6$proportion*(1-step5$proportion))
+sE <-sD/sqrt(100)
+
+type2er <-cbind(step6, approach, Aannames)
+
+
+g2 <- ggplot(data = type2er, aes(x = sample_size, y = proportion, group = Aannames)) + geom_line() +
+  facet_grid(approach~Aannames) + ggtitle(label = "Scenario 3: aanname van homoskedasticiteit geschonden", subtitle = "Type II fout ratio") + labs(x = ("Sample grootte (n)"), y = ("Type II fout ratio" ), colour = "homoskedasticiteit") + geom_errorbar(aes(ymin=proportion-sE, ymax=proportion+sE), size = 0.5, width=.05)
+
+g2 + theme_linedraw() + theme(plot.title = element_text(color = "black", size = 12, face = "bold")) 
+
+
+#-------------------
+# LINEAIRE REGRESSIE
+
+
+# Scenario 4: Aanname van multicollineariteit
+rm(list=ls())
+
+### simulation parameters
+### simulation parameters
+set.seed(126)
+sim_par <- expand.grid (repetition = 1:100,
+                        sample_size = c(10,100,1000),
+                        effect_size = c(0, 0.5, 1),
+                        multicol = c("Aanname voldaan", "Aanname geschonden"),
+                        stringsAsFactors = TRUE)
+nsim  <- nrow(sim_par)
+
+
+### simulate data function
+simulate_data <- function(sample_size, effect_size, multicol) {
+  n         <- sample_size
+  Beta.0    <- 0
+  Beta.1    <- effect_size
+  Beta.2    <- effect_size
+  e         <- rnorm(n)
+  if (multicol == "Aanname voldaan"){
+    predictor   <- rnorm(n)
+    predictor2  <- rnorm(n)
+    outcome     <- Beta.0 + Beta.1 * predictor + Beta.2 * predictor2 + e
+  } else if (multicol == "Aanname geschonden"){
+    means <- c(0, 0)
+    sds <- c(3, 3) ## the bigger the higher correlated
+    rho <- .8
+    rhomat <- matrix(c(1, rho, rho, 1), 2, 2)
+    covmat <- diag(sds) %*% rhomat %*% diag(sds)
+    mat <- mvtnorm::rmvnorm(n=n, mean=means, sigma=covmat)
+    predictor  <- mat[, 1]
+    predictor2 <- mat[, 2]
+    outcome    <- Beta.0 + Beta.1 * predictor + Beta.2 * predictor2 + e
+  }
+  return(data.frame(outcome,predictor, predictor2))
+}
+
+
+### fit frequentist
+
+fitFreq      <- function(dat){
+  f <- lm(outcome ~ predictor + predictor2, data=dat)
+  if (summary(f)$coefficients[2, "Pr(>|t|)"] < 0.025) {
+    return("Ha")
+  } else {
+    return("H0")
+  }
+}
+
+
+### fit bayes
+
+fitBayes     <- function(dat){
+  bf <- lmBF(outcome ~ predictor + predictor2, data=dat)
+  BF <- extractBF(bf)$bf
+  if (BF > 1) {
+    return("Ha")
+  } else if (BF < 1) {
+    return("H0")
+  } else {
+    return("NoEv")
+  } 
+}
+
+
+### simulation 
+correlation <- function(predictor, predictor2) {
+  dat <- data.frame(predictor, predictor2)
+  r <- cor(dat)
+  multi <- r[2]
+  return(multi)
+}
+
+
+for (i in 1:1800){
+  sample_size           <- sim_par$sample_size[i]
+  effect_size           <- sim_par$effect_size[i]
+  multicol              <- sim_par$multicol[i]
+  dat <- simulate_data(sample_size = sample_size, effect_size = effect_size, multicol = multicol)
+  sim_par$Freq.hyp[i]   <- fitFreq(dat)
+  sim_par$Bayes.hyp[i]  <- fitBayes(dat)
+  predictor  <- dat$predictor
+  predictor2 <- dat$predictor2
+  corr <- correlation(predictor, predictor2)
+  sim_par$MultMan[i] <- corr
+}
+
+sim_par
+
+
+### manipulation controle
+
+
+# manipulatie controle multicollineariteit
+library(ggplot2)
+
+mc.m <- ggplot(data = sim_par, aes(x = sim_par$MultMan)) + geom_boxplot(width=0.6)
+mc.m <- mc.m + facet_grid(effect_size~sample_size~multicol) + ggtitle("Manipulatiecontrole voor multicollineariteit") + labs(x = "Correlatie tussen de voorspellende variabelen") + theme_light() + theme(plot.title = element_text(color = "black", size = 12, face = "bold"))
+
+
+### ggplot type1error
+
+freq  <- table(sim_par$Freq.hyp, sim_par$multicol, sim_par$sample_size, sim_par$effect_size)/100
+bayes <- table(sim_par$Bayes.hyp, sim_par$multicol, sim_par$sample_size, sim_par$effect_size)/100
+
+results <- data.frame(
+  "Frequentist" = freq,
+  "Bayes" = bayes
+)
+
+names(results)[names(results) == "Frequentist.Var1"] <- "hypothesis"
+names(results)[names(results) == "Frequentist.Var2"] <- "multicollineariteit"
+names(results)[names(results) == "Frequentist.Var3"] <- "sample_size"
+names(results)[names(results) == "Frequentist.Var4"] <- "effect_size"
+names(results)[names(results) == "Frequentist.Freq"] <- "proportion"
+
+names(results)[names(results) == "Bayes.Var1"] <- "hypothesis"
+names(results)[names(results) == "Bayes.Var2"] <- "multicollineariteit"
+names(results)[names(results) == "Bayes.Var3"] <- "sample_size"
+names(results)[names(results) == "Bayes.Var4"] <- "effect_size"
+names(results)[names(results) == "Bayes.Freq"] <- "proportion"
+
+step1 <- results[1:12,]
+step2 <- step1[results$hypothesis != "H0",]
+step3 <- step2[1:6,]
+step4 <- step3[,1:5] 
+step5 <- step3[,6:10]
+
+approach <- c("Frequentist","Frequentist","Frequentist","Frequentist","Frequentist","Frequentist","Bayesiaan","Bayesiaan","Bayesiaan","Bayesiaan","Bayesiaan","Bayesiaan")
+ass <- c("Aanname voldaan", "Aanname geschonden")
+Aannames <- rep(ass, 6)
+step6 <- rbind(step4, step5)
+
+sD <-sqrt(step6$proportion*(1-step5$proportion))
+sE <-sD/sqrt(100)
+
+type1er <-cbind(step6, approach, Aannames)
+
+
+g1 <- ggplot(data = type1er, aes(x = sample_size, y = proportion, group = Aannames)) +geom_line() +
+  facet_grid(approach~Aannames) + ggtitle(label = "Scenario 4: aanname van multicollineariteit geschonden", subtitle = "Type I fout ratio") + labs(x = ("Sample grootte (n)"), y = ("Type I fout ratio" ), colour = "multicollineariteit") + geom_errorbar(aes(ymin=proportion-sE, ymax=proportion+sE), size = 0.5, width=.05)
+
+
+g1 + theme_linedraw() + theme(plot.title = element_text(color = "black", size = 12, face = "bold")) + geom_hline(yintercept=0.05, linetype="dashed", col="grey") 
+
+
+### ggplot type 2 error
+
+freq  <- table(sim_par$Freq.hyp, sim_par$multicol, sim_par$sample_size, sim_par$effect_size)/100
+bayes <- table(sim_par$Bayes.hyp, sim_par$multicol, sim_par$sample_size, sim_par$effect_size)/100
+
+
+results <- data.frame(
+  "Frequentist" = freq,
+  "Bayes" = bayes
+)
+
+names(results)[names(results) == "Frequentist.Var1"] <- "hypothesis"
+names(results)[names(results) == "Frequentist.Var2"] <- "multicollineariteit"
+names(results)[names(results) == "Frequentist.Var3"] <- "sample_size"
+names(results)[names(results) == "Frequentist.Var4"] <- "effect_size"
+names(results)[names(results) == "Frequentist.Freq"] <- "proportion"
+
+names(results)[names(results) == "Bayes.Var1"] <- "hypothesis"
+names(results)[names(results) == "Bayes.Var2"] <- "multicollineariteit"
+names(results)[names(results) == "Bayes.Var3"] <- "sample_size"
+names(results)[names(results) == "Bayes.Var4"] <- "effect_size"
+names(results)[names(results) == "Bayes.Freq"] <- "proportion"
+
+step1 <- results[25:36,]
+step2 <- step1[results$hypothesis != "Ha",]
+step3 <- step2[1:6,]
+step4 <- step3[,1:5] 
+step5 <- step3[,6:10]
+
+approach <- c("Frequentist","Frequentist","Frequentist","Frequentist","Frequentist","Frequentist","Bayesiaan","Bayesiaan","Bayesiaan","Bayesiaan","Bayesiaan","Bayesiaan")
+ass <- c("Aanname voldaan", "Aanname geschonden")
+Aannames <- rep(ass, 6)
+step6 <- rbind(step4, step5)
+
+sD <-sqrt(step6$proportion*(1-step5$proportion))
+sE <-sD/sqrt(100)
+
+type2er <-cbind(step6, approach, Aannames)
+
+g2 <- ggplot(data = type2er, aes(x = sample_size, y = proportion, group = Aannames)) + geom_line() +
+  facet_grid(approach~Aannames) + ggtitle(label = "Scenario 4: aanname van multicollineariteit geschonden", subtitle = "Type II fout ratio") + labs(x = ("Sample grootte (n)"), y = ("Type II fout ratio" ), colour = "multicollineariteit") + geom_errorbar(aes(ymin=proportion-sE, ymax=proportion+sE), size = 0.5, width=.05)
+
+g2 + theme_linedraw() + theme(plot.title = element_text(color = "black", size = 12, face = "bold")) 
+
+
+
+#--------------
+# PAIRED T-TEST
+
+## Scenario 5: aanname van normaliteit geschonden (Cauchy)
+
+### simulation parameters
+
+rm(list=ls())
+
+library(BayesFactor)
+library(coda)
+library(Matrix)
+library(plyr)
+library(ggplot2)
+library(MASS)
+
+
+set.seed(127)
+mu      <- 0
+table   <- matrix(nrow = 1800, ncol = 1000, byrow = TRUE)
+sim_par <- expand.grid(repetition = 1:100,
+                       sample_size = c(10,100,1000),
+                       effect_size = c(0, 0.5, 1),
+                       distribution = c(0, 1),
+                       stringsAsFactors = TRUE)
+nsim    <- nrow(sim_par)
+
+# distribution == 0 <- rnorm
+# distribution == 1 <- rcauchy
+
+### simulate data function 
+
+
+simulate_data <- function(sample_size, effect_size, distribution) {
+  n     <- sample_size
+  mu    <- effect_size
+  
+  if (distribution == 0){
+    mu + rnorm(n, 0, 1)
+  } else {
+    mu + rcauchy(n,0,1)
+  }
+}
+
+
+
+### simulation
+for (i in 1:1800){
+  effect_size  <- sim_par$effect_size[i]
+  distribution <- sim_par$distribution[i]
+  sample_size  <- sim_par$sample_size[i]
+  for (j in 1:1000){
+    table[i, j] <- simulate_data(effect_size = effect_size, distribution = distribution, sample_size = sample_size) [j]
+  }
+}
+
+
+### fit freq function
+
+f <- c()
+fit_freq <- function(x, sample_size){
+  f <- t.test(x = x,  n = sample_size, alternative = "two.sided", mu = 0,  conf.level = 0.95)
+  if (f$p.value < 0.025) {
+    return("Ha")
+  } else if (f$p.value >= 0.025) {
+    return("H0")
+  }
+}
+
+
+### shapiro function
+
+shapit<-function(x){
+  s<-shapiro.test(x) 
+  if (s$p.value > 0.025) {
+    return("normal")
+  } else {
+    return("non-normal")
+  }
+}
+
+
+### t-stat function
+
+TestStatistic <- numeric()
+T_stat <- function(x, sample_size){
+  t <- t.test(x = x, n = sample_size, alternative = "two.sided", mu = 0,  conf.level = 0.95)
+  TestStatistic <- t$statistic
+  p_value <- t$p.value
+  outcomeT <- cbind(TestStatistic, p_value)
+  return(outcomeT)
+}
+
+me <- function(x) {
+  m <-mean(x = x)
+  return(m)
+}
+
+for(i in 1:1800){
+  x <- table[i, !is.na(table[i, 1:1000])]
+  sample_size               <- sim_par$sample_size[i]
+  fit_freq(x = x, sample_size = sample_size)
+  sim_par$Freq.hyp[i]       <- fit_freq(x = x, sample_size = sample_size)
+  sim_par$TestStatistic[i]  <- T_stat (x = x, sample_size = sample_size)
+  STP <-T_stat (x = x, sample_size = sample_size)
+  sim_par$ST[i]<- STP[1]
+  sim_par$P[i] <-STP[2]
+  sim_par$M[i]<- me(x = x)
+  sim_par$Shapiro[i] <- shapit(x = x)
+  }
+
+
+### fit bayes function
+
+b <- c()
+Fit_Bayes <- function(st, sample_size){
+  b <- ttest.tstat(t = st, n1 = sample_size, simple = TRUE)
+  if (b > 1) {
+    return("Ha")
+  } else if (b < 1) {
+    return("H0")
+  } else if (b == 1){
+    return("NoEv")
+  } 
+}
+
+BF  <- function(st, sample_size){
+  bf <- ttest.tstat(t = st, n1 = sample_size, simple = TRUE)
+  return(bf)
+}  
+
+### simulation
+stat <- numeric
+SS <- numeric()
+for (i in seq_len(nsim)){
+  stat <- sim_par$TestStatistic[i]
+  SS   <- sim_par$sample_size[i]
+  sim_par$Bayes.hyp[i]<- Fit_Bayes(st = stat, sample_size = SS)
+  sim_par$BF[i] <- BF(st = stat, sample_size = SS)
+}
+
+
+### manipulatiecontrole distributie van de sample gemiddelden
+
+histt1 <- sim_par
+histt2 <- histt1[sim_par$sample_size == 10,]
+histt3 <- histt1[sim_par$sample_size == 100,]
+histt4 <- histt1[sim_par$sample_size == 1000,]
+freq_hist <- ggplot(histt1, aes(x=histt1$P)) + geom_histogram()
+freq_hist <- freq_hist + facet_grid(effect_size~distribution~sample_size)
+#
+sampling <- ggplot(histt1, aes(x=histt1$M), binwidth = 5) + geom_histogram()
+sampling <- sampling + facet_grid(effect_size~sample_size~distribution) + xlim(-1,2) + ggtitle(label="Sampling distributie van de gemiddeldes", subtitle= "0 staat voor de normale distributie en 1 voor de Cauchy distributie") + labs(x = "Sampling distributie van de gemiddeldes", y = "Aantal") + facet_wrap(vars(histt1$M), scales = "free_y")
+
+
+mu <- effect_size
+n <- sample_size
+set.seed(127)
+# voldaan
+y <- mu + rnorm(n, 0, 1)
+shapiro.test(y)
+
+# geschonden
+y1 <- mu + rcauchy(n,0,1)
+shapiro.test(y1)
+
+
+### results
+
+# proportions
+freq  <- table(sim_par$Freq.hyp, sim_par$distribution, sim_par$sample_size, sim_par$effect_size)/100
+bayes <- table(sim_par$Bayes.hyp, sim_par$distribution, sim_par$sample_size, sim_par$effect_size)/100
+
+
+results <- data.frame(
+  "Frequentist" = freq,
+  "Bayes" = bayes
+)
+
+names(results)[names(results) == "Frequentist.Var1"] <- "hypothesis"
+names(results)[names(results) == "Frequentist.Var2"] <- "distribution"
+names(results)[names(results) == "Frequentist.Var3"] <- "sample_size"
+names(results)[names(results) == "Frequentist.Var4"] <- "effect_size"
+names(results)[names(results) == "Frequentist.Freq"] <- "proportion"
+
+names(results)[names(results) == "Bayes.Var1"] <- "hypothesis"
+names(results)[names(results) == "Bayes.Var2"] <- "distribution"
+names(results)[names(results) == "Bayes.Var3"] <- "sample_size"
+names(results)[names(results) == "Bayes.Var4"] <- "effect_size"
+names(results)[names(results) == "Bayes.Freq"] <- "proportion"
+
+results
+
+
+### ggplot type 1 error
+
+step1 <- results[1:12,]
+step2 <- step1[results$hypothesis != "H0",]
+step3 <- step2[1:6,]
+step4 <- step3[,1:5] 
+step5 <- step3[,6:10]
+
+approach <- c("Frequentist","Frequentist","Frequentist","Frequentist","Frequentist","Frequentist","Bayesiaan","Bayesiaan","Bayesiaan","Bayesiaan","Bayesiaan","Bayesiaan")
+ass <- c("Aanname voldaan", "Aanname geschonden")
+Aannames <- rep(ass, 6)
+step6 <- rbind(step4, step5)
+
+sD <-sqrt(step6$proportion*(1-step5$proportion))
+sE <-sD/sqrt(100)
+
+type1er <- cbind(step6, approach, Aannames)
+
+
+g1 <- ggplot(data = type1er, aes(x = sample_size, y = proportion, group = Aannames)) +geom_line() +
+  facet_grid(approach~Aannames) + ggtitle(label = "Scenario 5: aanname van normaliteit geschonden", subtitle = "Type I fout ratio") + labs(x = ("Sample grootte (n)"), y = ("Type I fout ratio" ), colour = "Distributie") + geom_errorbar(aes(ymin=proportion-sE, ymax=proportion+sE), size = 0.5, width=.05)
+
+
+g1 + theme_linedraw() + theme(plot.title = element_text(color = "black", size = 12, face = "bold")) + geom_hline(yintercept=0.05, linetype="dashed", col="grey67") 
+
+
+### ggplot type 2 error
+
+freq  <- table(sim_par$Freq.hyp, sim_par$distribution, sim_par$sample_size, sim_par$effect_size)/100
+bayes <- table(sim_par$Bayes.hyp, sim_par$distribution, sim_par$sample_size, sim_par$effect_size)/100
+
+results <- data.frame(
+  "Frequentist" = freq,
+  "Bayes" = bayes
+)
+
+names(results)[names(results) == "Frequentist.Var1"] <- "hypothesis"
+names(results)[names(results) == "Frequentist.Var2"] <- "distribution"
+names(results)[names(results) == "Frequentist.Var3"] <- "sample_size"
+names(results)[names(results) == "Frequentist.Var4"] <- "effect_size"
+names(results)[names(results) == "Frequentist.Freq"] <- "proportion"
+
+names(results)[names(results) == "Bayes.Var1"] <- "hypothesis"
+names(results)[names(results) == "Bayes.Var2"] <- "distribution"
+names(results)[names(results) == "Bayes.Var3"] <- "sample_size"
+names(results)[names(results) == "Bayes.Var4"] <- "effect_size"
+names(results)[names(results) == "Bayes.Freq"] <- "proportion"
+
+
+step1 <- results[25:36,]
+step2 <- step1[results$hypothesis != "Ha",]
+step3 <- step2[1:6,]
+step4 <- step3[,1:5] 
+step5 <- step3[,6:10]
+
+approach <- c("Frequentist","Frequentist","Frequentist","Frequentist","Frequentist","Frequentist","Bayesiaan","Bayesiaan","Bayesiaan","Bayesiaan","Bayesiaan","Bayesiaan")
+ass <- c("Aanname voldaan", "Aanname geschonden")
+Aannames <- rep(ass, 6)
+step6 <- rbind(step4, step5)
+
+sD <-sqrt(step6$proportion*(1-step5$proportion))
+sE <-sD/sqrt(100)
+
+type2er <-cbind(step6, approach, Aannames)
+
+
+g2 <- ggplot(data = type2er, aes(x = sample_size, y = proportion, group = Aannames)) + geom_line() +
+  facet_grid(approach~Aannames) + ggtitle(label = "Scenario 5: aanname van normaliteit geschonden", subtitle = "Type II fout ratio") + labs(x = ("Sample grootte (n)"), y = ("Type II fout ratio" ), colour = "Distributie") + geom_errorbar(aes(ymin=proportion-sE, ymax=proportion+sE), size = 0.5, width=.05)
+g2 + theme_linedraw() + theme(plot.title = element_text(color = "black", size = 12, face = "bold"))
